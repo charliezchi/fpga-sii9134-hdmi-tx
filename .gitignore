@@ -4,8 +4,11 @@ AGENTS.md
 *.rpt
 *.bin
 
+# HqFpga artifacts
+prj/hq_run
 prj/cut_merge.do
 prj/org_vs_imp.fsmap
+prj/hqprjUI.json
 
 # Simulation artifacts
 sim/work/

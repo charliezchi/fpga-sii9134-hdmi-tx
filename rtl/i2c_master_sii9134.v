@@ -917,6 +917,8 @@ module i2c_config (
 
     reg  i2c_write_req;
     wire i2c_write_req_ack;
+    wire i2c_read_req_ack;
+    wire [7:0] i2c_read_data;
     wire err;
     reg [2:0] state;
 
@@ -986,13 +988,13 @@ module i2c_config (
         .sda_padoen_o     (sda_padoen_o),
         .i2c_addr_2byte   (i2c_addr_2byte),
         .i2c_read_req     (1'b0),
-        .i2c_read_req_ack (),
+        .i2c_read_req_ack (i2c_read_req_ack),
         .i2c_write_req    (i2c_write_req),
         .i2c_write_req_ack(i2c_write_req_ack),
         .i2c_slave_dev_addr(lut_dev_addr),
         .i2c_slave_reg_addr(lut_reg_addr),
         .i2c_write_data   (lut_reg_data),
-        .i2c_read_data    (),
+        .i2c_read_data    (i2c_read_data),
         .error            (err)
     );
 

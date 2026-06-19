@@ -1,0 +1,14 @@
+AGENTS.md
+
+*.log
+*.rpt
+*.bin
+
+prj/cut_merge.do
+prj/org_vs_imp.fsmap
+
+# Simulation artifacts
+sim/work/
+sim/transcript
+sim/*.vcd
+

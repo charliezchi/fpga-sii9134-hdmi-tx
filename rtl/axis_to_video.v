@@ -10,7 +10,9 @@
 // Behavior:
 //   - s_axis_tready is asserted whenever the timing generator requests an
 //     active pixel (de_i == 1).
-//   - Output data/hsync/vsync/de are registered, producing a one-cycle
+//   - Timing inputs are registered once to produce an internal delayed enable
+//     (de_d) that matches the latency of the upstream AXI4-Stream master.
+//   - Output data/hsync/vsync/de are registered, producing a two-cycle
 //     latency relative to the timing-generator inputs.
 //   - If the AXI-Stream source cannot provide a pixel when required, the
 //     output is forced to black and underflow_o is asserted.
@@ -48,11 +50,29 @@ module axis_to_video #(
     output reg                   underflow_o
 );
 
-    // Accept a pixel exactly when the timing generator needs one.
-    assign s_axis_tready = de_i;
+    // Delay the timing enable by one cycle so that it aligns with the
+    // pipelined AXI4-Stream data from the upstream pattern generator.
+    reg hsync_d;
+    reg vsync_d;
+    reg de_d;
+
+    always @(posedge pclk or negedge rst_n) begin
+        if (!rst_n) begin
+            hsync_d <= 1'b0;
+            vsync_d <= 1'b0;
+            de_d    <= 1'b0;
+        end else begin
+            hsync_d <= hsync_i;
+            vsync_d <= vsync_i;
+            de_d    <= de_i;
+        end
+    end
+
+    // Accept a pixel when the delayed enable is active.
+    assign s_axis_tready = de_d;
 
     //-------------------------------------------------------------------------
-    // Registered video output with one-cycle latency
+    // Registered video output with two-cycle latency
     //-------------------------------------------------------------------------
     always @(posedge pclk or negedge rst_n) begin
         if (!rst_n) begin
@@ -62,12 +82,12 @@ module axis_to_video #(
             de_o        <= 1'b0;
             underflow_o <= 1'b0;
         end else begin
-            // Register timing signals to align with data_o latency
-            hsync_o <= hsync_i;
-            vsync_o <= vsync_i;
-            de_o    <= de_i;
+            // Register delayed timing signals to align with data_o latency
+            hsync_o <= hsync_d;
+            vsync_o <= vsync_d;
+            de_o    <= de_d;
 
-            if (de_i) begin
+            if (de_d) begin
                 if (s_axis_tvalid && s_axis_tready) begin
                     data_o      <= s_axis_tdata;
                     underflow_o <= 1'b0;

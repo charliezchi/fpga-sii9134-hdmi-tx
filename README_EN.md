@@ -19,7 +19,7 @@ It accepts an AXI4-Stream video interface, outputs parallel RGB to the SiI9134, 
 - 27 MHz input clock generates 148.5 MHz pixel clock via PLL
 - AXI4-Stream slave interface with `tuser` (start-of-frame) and `tlast` (end-of-line)
 - 36-bit RGB data format (12-12-12), consistent with the reference design
-- Built-in color-bar test pattern generator for board-level verification
+- Built-in expanding-ring test pattern generator for board-level verification
 - I2C init sequence: `{0x72,0x08,0x35}`, `{0x7A,0x2F,0x00}`
 - Reference OpenCores I2C master controller merged into a single file
 
@@ -62,7 +62,7 @@ Upon success, `sii9134_demo.bin` is generated.
 
 ### 3. Board Verification
 
-Download `prj/sii9134_demo.bin` to the board and connect an HDMI monitor to see the 1080p60 color-bar pattern.
+Download `prj/sii9134_demo.bin` to the board and connect an HDMI monitor to see the 1080p60 expanding-ring pattern.
 
 ## Top-Level Interfaces
 

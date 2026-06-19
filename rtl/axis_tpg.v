@@ -1,10 +1,10 @@
 // axis_tpg.v
 // AXI4-Stream test-pattern generator for the SiI9134 demo.
 //
-// Produces a standard eight-bar color bar pattern at 1920x1080 @ 60 Hz.
-// The module expects video timing signals from an external source (typically
-// the same video_timing_gen used by axis_to_video), ensuring the AXI-Stream
-// output is perfectly aligned with the downstream converter.
+// Outputs a single animated pattern: expanding concentric color-bar rings
+// centered on the screen.  All pixel math uses shifts/adds/compares only,
+// avoiding division/modulo.  A one-stage output pipeline is included to meet
+// the 148.5 MHz pixel-clock timing budget.
 //
 // AXI4-Stream sideband:
 //   - tvalid is asserted during active video (de == 1)
@@ -14,7 +14,8 @@
 `timescale 1ns / 1ps
 
 module axis_tpg #(
-    parameter H_ACTIVE = 1920
+    parameter H_ACTIVE = 1920,
+    parameter V_ACTIVE = 1080
 )(
     input  wire        pclk,         // Pixel clock
     input  wire        rst_n,        // Active-low reset
@@ -34,53 +35,72 @@ module axis_tpg #(
     output reg         m_axis_tlast
 );
 
-    // Use threshold comparisons instead of division to keep the bar index
-    // computation fast.  H_ACTIVE / 8 = 240 for the default 1920x1080 mode.
-    localparam BAR_WIDTH = H_ACTIVE / 8;
-
-    reg [2:0] bar_idx;
-    reg [35:0] color_bar;
-
     //-------------------------------------------------------------------------
-    // Combinational bar-index generation (compare x against bar boundaries)
+    // Frame counter for the animated rings
     //-------------------------------------------------------------------------
-    always @(*) begin
-        if      (x < BAR_WIDTH * 1) bar_idx = 3'd0;
-        else if (x < BAR_WIDTH * 2) bar_idx = 3'd1;
-        else if (x < BAR_WIDTH * 3) bar_idx = 3'd2;
-        else if (x < BAR_WIDTH * 4) bar_idx = 3'd3;
-        else if (x < BAR_WIDTH * 5) bar_idx = 3'd4;
-        else if (x < BAR_WIDTH * 6) bar_idx = 3'd5;
-        else if (x < BAR_WIDTH * 7) bar_idx = 3'd6;
-        else                        bar_idx = 3'd7;
+    reg [15:0] frame_cnt;
+    reg        vsync_prev;
+
+    always @(posedge pclk or negedge rst_n) begin
+        if (!rst_n) begin
+            frame_cnt  <= 16'd0;
+            vsync_prev <= 1'b0;
+        end else begin
+            vsync_prev <= vsync;
+            if (!vsync_prev && vsync) begin // rising edge of vsync
+                frame_cnt <= frame_cnt + 1'b1;
+            end
+        end
     end
 
     //-------------------------------------------------------------------------
-    // Combinational color-bar generation (8-bit to 12-bit, LSB padded with 1)
+    // Color constants (12-bit per channel)
     //-------------------------------------------------------------------------
+    localparam [11:0] C_MAX = 12'hFFF; // full intensity
+    localparam [11:0] C_MIN = 12'h000; // black level
+
+    //-------------------------------------------------------------------------
+    // Expanding concentric color-bar rings centered on the screen.
+    // Uses Manhattan distance plus a frame counter to make the rings move.
+    //-------------------------------------------------------------------------
+    localparam H_CENTER = H_ACTIVE / 2;
+    localparam V_CENTER = V_ACTIVE / 2;
+
+    wire [15:0] dx = (x > H_CENTER) ? (x - H_CENTER) : (H_CENTER - x);
+    wire [15:0] dy = (y > V_CENTER) ? (y - V_CENTER) : (V_CENTER - y);
+    wire [15:0] ring_dist = dx + dy;
+    wire [15:0] ring_pos = ring_dist + {frame_cnt[8:1], 2'd0};
+    wire [2:0]  ring_idx = ring_pos[7:5]; // 32-pixel wide rings
+
+    reg [35:0] pixel_rgb;
     always @(*) begin
-        case (bar_idx)
-            3'd0: color_bar = {12'hFFF, 12'hFFF, 12'hFFF}; // White
-            3'd1: color_bar = {12'hFFF, 12'hFFF, 12'h000}; // Yellow
-            3'd2: color_bar = {12'h000, 12'hFFF, 12'hFFF}; // Cyan
-            3'd3: color_bar = {12'h000, 12'hFFF, 12'h000}; // Green
-            3'd4: color_bar = {12'hFFF, 12'h000, 12'hFFF}; // Magenta
-            3'd5: color_bar = {12'hFFF, 12'h000, 12'h000}; // Red
-            3'd6: color_bar = {12'h000, 12'h000, 12'hFFF}; // Blue
-            3'd7: color_bar = {12'h000, 12'h000, 12'h000}; // Black
+        case (ring_idx)
+            3'd0: pixel_rgb = {C_MAX, C_MIN, C_MIN}; // red
+            3'd1: pixel_rgb = {C_MAX, C_MAX, C_MIN}; // yellow
+            3'd2: pixel_rgb = {C_MIN, C_MAX, C_MIN}; // green
+            3'd3: pixel_rgb = {C_MIN, C_MAX, C_MAX}; // cyan
+            3'd4: pixel_rgb = {C_MIN, C_MIN, C_MAX}; // blue
+            3'd5: pixel_rgb = {C_MAX, C_MIN, C_MAX}; // magenta
+            3'd6: pixel_rgb = {C_MAX, C_MAX, C_MAX}; // white
+            3'd7: pixel_rgb = {C_MIN, C_MIN, C_MIN}; // black
         endcase
     end
 
     //-------------------------------------------------------------------------
-    // Combinational AXI4-Stream outputs aligned to active video
-    // Using combinational outputs keeps tvalid/tready in the same cycle as
-    // the timing generator's de, avoiding a one-cycle latency mismatch.
+    // AXI4-Stream output pipeline (one stage)
     //-------------------------------------------------------------------------
-    always @(*) begin
-        m_axis_tvalid = de;
-        m_axis_tdata  = color_bar;
-        m_axis_tuser  = frame_start;
-        m_axis_tlast  = de && (x == H_ACTIVE - 1);
+    always @(posedge pclk or negedge rst_n) begin
+        if (!rst_n) begin
+            m_axis_tvalid <= 1'b0;
+            m_axis_tdata  <= 36'd0;
+            m_axis_tuser  <= 1'b0;
+            m_axis_tlast  <= 1'b0;
+        end else begin
+            m_axis_tvalid <= de;
+            m_axis_tdata  <= pixel_rgb;
+            m_axis_tuser  <= frame_start;
+            m_axis_tlast  <= de && (x == H_ACTIVE - 1);
+        end
     end
 
 endmodule

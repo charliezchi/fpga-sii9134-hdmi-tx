@@ -4,7 +4,7 @@
 // This module combines the SiI9134 driver (sii9134_top) with an internal
 // AXI4-Stream test-pattern generator (axis_tpg).  It is intended for direct
 // synthesis onto the target board: connect a 27 MHz oscillator and the
-// SiI9134 device, and the demo will output a 1080p60 color-bar pattern.
+// SiI9134 device, and the demo will output a 1080p60 expanding-ring pattern.
 //
 // The on-chip PLL is instantiated inside sii9134_top; the demo only needs
 // the reference clock from the board.
